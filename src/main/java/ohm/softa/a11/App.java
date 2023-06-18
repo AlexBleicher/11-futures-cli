@@ -2,13 +2,15 @@ package ohm.softa.a11;
 
 import ohm.softa.a11.openmensa.OpenMensaAPI;
 import ohm.softa.a11.openmensa.OpenMensaAPIService;
+import ohm.softa.a11.openmensa.model.Canteen;
+import ohm.softa.a11.openmensa.model.PageInfo;
+import retrofit2.Response;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.Locale;
-import java.util.Scanner;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.IntStream;
 
 /**
@@ -24,7 +26,7 @@ public class App {
 	private static final Calendar currentDate = Calendar.getInstance();
 	private static int currentCanteenId = -1;
 
-	public static void main(String[] args) {
+	public static void main(String[] args) throws ExecutionException, InterruptedException {
 		MenuSelection selection;
 		/* loop while true to get back to the menu every time an action was performed */
 		do {
@@ -49,18 +51,48 @@ public class App {
 		} while (true);
 	}
 
-	private static void printCanteens() {
+	private static void printCanteens() throws ExecutionException, InterruptedException {
 		System.out.print("Fetching canteens [");
 		/* TODO fetch all canteens and print them to STDOUT
 		 * at first get a page without an index to be able to extract the required pagination information
 		 * afterwards you can iterate the remaining pages
 		 * keep in mind that you should await the process as the user has to select canteen with a specific id */
+		CompletableFuture<Response<List<Canteen>>> canteenList = openMensaAPI.getCanteens();
+		Response<List<Canteen>> listResponse = canteenList.get();
+		PageInfo pageInfo = PageInfo.extractFromResponse(listResponse);
+		int totalCountOfPages = pageInfo.getTotalCountOfPages();
+
+		CompletableFuture<List<Canteen>> collectedCanteens = null;
+
+		for(int i=2; i<=totalCountOfPages; i++){
+			if(collectedCanteens==null){
+				collectedCanteens=openMensaAPI.getCanteens(i);
+			}
+			else{
+				collectedCanteens = collectedCanteens.thenCombine(openMensaAPI.getCanteens(i), App::combineLists);
+			}
+		}
+		List<Canteen> res = new ArrayList<>();
+		if(listResponse.body()!=null){
+			res = listResponse.body();
+		}
+		res.addAll(collectedCanteens.get());
+		for (Canteen re : res) {
+			System.out.println(re);
+		}
+		System.out.println("]");
 	}
 
 	private static void printMeals() {
 		/* TODO fetch all meals for the currently selected canteen
 		 * to avoid errors retrieve at first the state of the canteen and check if the canteen is opened at the selected day
 		 * don't forget to check if a canteen was selected previously! */
+	}
+
+	private static <T> List<T> combineLists(List<? extends T> l1, List<? extends T> l2){
+		List<T> res = new ArrayList<>(l1);
+		res.addAll(l2);
+		return res;
 	}
 
 	/**
