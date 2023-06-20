@@ -6,11 +6,9 @@ import ohm.softa.a11.openmensa.model.Canteen;
 import ohm.softa.a11.openmensa.model.Meal;
 import ohm.softa.a11.openmensa.model.PageInfo;
 import ohm.softa.a11.openmensa.model.State;
-import retrofit2.Response;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -55,34 +53,37 @@ public class App {
 	}
 
 	private static void printCanteens() throws ExecutionException, InterruptedException {
-		System.out.print("Fetching canteens [");
 		/* TODO fetch all canteens and print them to STDOUT
 		 * at first get a page without an index to be able to extract the required pagination information
 		 * afterwards you can iterate the remaining pages
 		 * keep in mind that you should await the process as the user has to select canteen with a specific id */
-		CompletableFuture<Response<List<Canteen>>> canteenList = openMensaAPI.getCanteens();
-		Response<List<Canteen>> listResponse = canteenList.get();
-		PageInfo pageInfo = PageInfo.extractFromResponse(listResponse);
-		int totalCountOfPages = pageInfo.getTotalCountOfPages();
+		openMensaAPI.getCanteens()
+			.thenApply(response -> {
+				PageInfo pageInfo = PageInfo.extractFromResponse(response);
+				int totalCountOfPages = pageInfo.getTotalCountOfPages();
+				CompletableFuture<List<Canteen>> collectedCanteens = null;
+				List<Canteen> allCanteens = response.body();
 
-		CompletableFuture<List<Canteen>> collectedCanteens = null;
+				for (int i = 2; i < totalCountOfPages; i++) {
+					collectedCanteens = openMensaAPI.getCanteens(i);
+					try {
+						allCanteens.addAll(collectedCanteens.get());
+					} catch (InterruptedException e) {
+						throw new RuntimeException(e);
+					} catch (ExecutionException e) {
+						throw new RuntimeException(e);
+					}
+				}
+				return allCanteens;
+			})
+			.thenAccept(canteens -> {
+				System.out.print("Fetching canteens [");
+				for (Canteen canteen : canteens) {
+					System.out.println(canteen);
+				}
+			})
+			.get();
 
-		for(int i=2; i<=totalCountOfPages; i++){
-			if(collectedCanteens==null){
-				collectedCanteens=openMensaAPI.getCanteens(i);
-			}
-			else{
-				collectedCanteens = collectedCanteens.thenCombine(openMensaAPI.getCanteens(i), App::combineLists);
-			}
-		}
-		List<Canteen> res = new ArrayList<>();
-		if(listResponse.body()!=null){
-			res = listResponse.body();
-		}
-		res.addAll(collectedCanteens.get());
-		for (Canteen re : res) {
-			System.out.println(re);
-		}
 		System.out.println("]");
 	}
 
@@ -90,23 +91,39 @@ public class App {
 		/* TODO fetch all meals for the currently selected canteen
 		 * to avoid errors retrieve at first the state of the canteen and check if the canteen is opened at the selected day
 		 * don't forget to check if a canteen was selected previously! */
-		if(currentCanteenId>0){
+		if (currentCanteenId > 0) {
 			//System.out.println(currentDate.getTime().getClass());
-			CompletableFuture<State> canteenStateFuture = openMensaAPI.getCanteenState(currentCanteenId, dateFormat.format(currentDate.getTime()));
-			State state = canteenStateFuture.get();
-			List<Meal> mealList = new ArrayList<>();
-			if(!state.isClosed()){
-				CompletableFuture<List<Meal>> meals = openMensaAPI.getMeals(currentCanteenId, dateFormat.format(currentDate.getTime()));
-				mealList.addAll(meals.get());
-			}
-			System.out.println("Meals: [");
-			for (Meal meal : mealList) {
-				System.out.println(meal + ";");
-			}
+			openMensaAPI.getCanteenState(currentCanteenId, dateFormat.format(currentDate.getTime()))
+				.thenApply(state -> {
+					if (!state.isClosed()) {
+						try {
+							return openMensaAPI.getMeals(currentCanteenId, dateFormat.format(currentDate.getTime())).get();
+						} catch (InterruptedException e) {
+							throw new RuntimeException(e);
+						} catch (ExecutionException e) {
+							throw new RuntimeException(e);
+						}
+					}
+					else{
+						return new ArrayList<Meal>();
+					}
+				})
+				.thenAccept(meals -> {
+					System.out.println("Meals: [");
+					for (Meal meal : meals) {
+						System.out.println(meal + ";");
+					}
+					System.out.println("]");
+
+				})
+				.get();
+
+		} else {
+			System.out.println("Keine Kantine keine Kekse!");
 		}
 	}
 
-	private static <T> List<T> combineLists(List<? extends T> l1, List<? extends T> l2){
+	private static <T> List<T> combineLists(List<? extends T> l1, List<? extends T> l2) {
 		List<T> res = new ArrayList<>(l1);
 		res.addAll(l2);
 		return res;
