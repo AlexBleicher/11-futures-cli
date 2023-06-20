@@ -3,11 +3,14 @@ package ohm.softa.a11;
 import ohm.softa.a11.openmensa.OpenMensaAPI;
 import ohm.softa.a11.openmensa.OpenMensaAPIService;
 import ohm.softa.a11.openmensa.model.Canteen;
+import ohm.softa.a11.openmensa.model.Meal;
 import ohm.softa.a11.openmensa.model.PageInfo;
+import ohm.softa.a11.openmensa.model.State;
 import retrofit2.Response;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -83,10 +86,24 @@ public class App {
 		System.out.println("]");
 	}
 
-	private static void printMeals() {
+	private static void printMeals() throws ExecutionException, InterruptedException {
 		/* TODO fetch all meals for the currently selected canteen
 		 * to avoid errors retrieve at first the state of the canteen and check if the canteen is opened at the selected day
 		 * don't forget to check if a canteen was selected previously! */
+		if(currentCanteenId>0){
+			//System.out.println(currentDate.getTime().getClass());
+			CompletableFuture<State> canteenStateFuture = openMensaAPI.getCanteenState(currentCanteenId, dateFormat.format(currentDate.getTime()));
+			State state = canteenStateFuture.get();
+			List<Meal> mealList = new ArrayList<>();
+			if(!state.isClosed()){
+				CompletableFuture<List<Meal>> meals = openMensaAPI.getMeals(currentCanteenId, dateFormat.format(currentDate.getTime()));
+				mealList.addAll(meals.get());
+			}
+			System.out.println("Meals: [");
+			for (Meal meal : mealList) {
+				System.out.println(meal + ";");
+			}
+		}
 	}
 
 	private static <T> List<T> combineLists(List<? extends T> l1, List<? extends T> l2){
